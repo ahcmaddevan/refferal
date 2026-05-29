@@ -1,4 +1,4 @@
-// bot.js - H87 Telegram Bot (Selector Sudah Disesuaikan untuk Dashboard H87)
+// bot.js - H87 Telegram Bot (Fixed)
 const { Telegraf } = require('telegraf');
 const puppeteer = require('puppeteer');
 const fs = require('fs').promises;
@@ -9,7 +9,7 @@ const BOT_TOKEN = process.env.BOT_TOKEN || '7881014057:AAHfcZNy3pKEcwsr-PLEVNkFk
 const H87_USERNAME = 'midasbot';
 const H87_PASSWORD = 'shxxop';
 const H87_URL = 'https://h87invite.shop';
-const HEADLESS_MODE = true;  // Ubah ke false jika ingin lihat prosesnya
+const HEADLESS_MODE = true;
 const NAVIGATION_TIMEOUT = 30000;
 const SESSIONS_DIR = './sessions';
 // =====================================
@@ -58,18 +58,16 @@ async function loadCookies(userId) {
   }
 }
 
-// Fungsi delay
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// Proses invite dengan selector yang lebih presisi
+// Proses invite
 async function processInvite(userId, inviteLink) {
   let browser = null;
   
   try {
-    logger.info(`🚀 Processing invite for user ${userId}`);
-    logger.info(`🔗 Link: ${inviteLink.substring(0, 80)}...`);
+    logger.info(`Processing invite for user ${userId}`);
+    logger.info(`Link: ${inviteLink.substring(0, 80)}...`);
 
-    // Launch browser
     browser = await puppeteer.launch({
       headless: HEADLESS_MODE,
       args: [
@@ -88,362 +86,213 @@ async function processInvite(userId, inviteLink) {
     const savedCookies = await loadCookies(userId);
     if (savedCookies && savedCookies.length > 0) {
       await page.setCookie(...savedCookies);
-      logger.info(`🍪 Loaded cookies for user ${userId}`);
+      logger.info(`Loaded cookies for user ${userId}`);
     }
     
     // Buka H87
-    logger.info(`🌐 Navigating to ${H87_URL}...`);
     await page.goto(H87_URL, { waitUntil: 'networkidle2', timeout: NAVIGATION_TIMEOUT });
-    logger.info(`✅ Page loaded`);
-    
-    // Screenshot untuk debug
-    await page.screenshot({ path: `debug_1_after_load_${userId}.png` });
+    logger.info(`Page loaded`);
     
     // Cek apakah perlu login
+    const hasPasswordField = await page.$('input[type="password"]') !== null;
     const currentUrl = page.url();
-    logger.info(`📍 Current URL: ${currentUrl}`);
-    
-    // Cek apakah di halaman login
-    const hasLoginForm = await page.$('input[type="password"]') !== null;
     const isLoginPage = currentUrl.includes('login') || currentUrl.includes('signin');
     
-    if (hasLoginForm || isLoginPage || !savedCookies) {
-      logger.info('🔐 Login required...');
+    if (hasPasswordField || isLoginPage || !savedCookies) {
+      logger.info('Login required...');
       
-      // Isi username - coba berbagai selector
-      const usernameSelectors = [
-        'input[name="username"]',
-        'input[name="email"]', 
-        'input[type="text"]',
-        '#username',
-        '#email'
-      ];
-      
+      // Isi username
+      const usernameSelectors = ['input[name="username"]', 'input[name="email"]', 'input[type="text"]'];
       let usernameFilled = false;
       for (const selector of usernameSelectors) {
         const element = await page.$(selector);
         if (element) {
           await element.click({ clickCount: 3 });
           await element.type(H87_USERNAME);
-          logger.info(`📝 Filled username with: ${selector}`);
+          logger.info(`Filled username with: ${selector}`);
           usernameFilled = true;
           break;
         }
       }
       
       if (!usernameFilled) {
-        await page.screenshot({ path: `debug_login_failed_${userId}.png` });
         throw new Error('Username field not found');
       }
       
       // Isi password
-      const passwordSelectors = [
-        'input[type="password"]',
-        '#password'
-      ];
-      
-      let passwordFilled = false;
-      for (const selector of passwordSelectors) {
-        const element = await page.$(selector);
-        if (element) {
-          await element.click({ clickCount: 3 });
-          await element.type(H87_PASSWORD);
-          logger.info(`🔑 Filled password with: ${selector}`);
-          passwordFilled = true;
-          break;
-        }
-      }
-      
-      if (!passwordFilled) {
+      const passwordField = await page.$('input[type="password"]');
+      if (passwordField) {
+        await passwordField.click({ clickCount: 3 });
+        await passwordField.type(H87_PASSWORD);
+        logger.info('Filled password');
+      } else {
         throw new Error('Password field not found');
       }
       
-      // Cek apakah ada checkbox "Remember login"
+      // Cek checkbox "Remember login" - FIXED
       const rememberCheckbox = await page.$('input[type="checkbox"]');
       if (rememberCheckbox) {
-        const isChecked = await rememberCheckbox.isChecked();
+        // Perbaikan: gunakan evaluate untuk cek checked
+        const isChecked = await page.evaluate(el => el.checked, rememberCheckbox);
         if (!isChecked) {
           await rememberCheckbox.click();
-          logger.info('✅ Checked "Remember login"');
+          logger.info('Checked "Remember login"');
         }
       }
       
       // Klik tombol LOGIN
-      const loginSelectors = [
-        'button[type="submit"]',
-        'input[type="submit"]',
-        'button:has-text("LOGIN")',
-        'button:has-text("Login")',
-        'button:has-text("Sign in")',
-        'button'
-      ];
-      
       let loginClicked = false;
+      const loginSelectors = ['button[type="submit"]', 'input[type="submit"]', 'button'];
+      
       for (const selector of loginSelectors) {
-        try {
-          const button = await page.$(selector);
-          if (button) {
-            await button.click();
-            loginClicked = true;
-            logger.info(`🔘 Clicked login with: ${selector}`);
-            break;
-          }
-        } catch (e) {}
+        const button = await page.$(selector);
+        if (button) {
+          await button.click();
+          loginClicked = true;
+          logger.info(`Clicked login with: ${selector}`);
+          break;
+        }
       }
       
-      // Alternative: cari button berdasarkan text content
       if (!loginClicked) {
         await page.evaluate(() => {
           const buttons = Array.from(document.querySelectorAll('button, input[type="submit"]'));
           const loginBtn = buttons.find(btn => 
-            btn.textContent?.toUpperCase().includes('LOGIN') ||
-            btn.textContent?.toUpperCase().includes('SIGN IN')
+            btn.textContent?.toUpperCase().includes('LOGIN')
           );
           if (loginBtn) loginBtn.click();
         });
-        loginClicked = true;
-        logger.info('🔘 Clicked login via text search');
+        logger.info('Clicked login via text search');
       }
       
-      if (!loginClicked) {
-        throw new Error('Login button not found');
-      }
-      
-      // Tunggu navigasi setelah login
-      await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 15000 }).catch(() => {
-        logger.debug('⏳ No navigation detected after login');
-      });
-      
+      await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 15000 }).catch(() => {});
       await delay(3000);
       
-      // Simpan cookies
       const cookies = await page.cookies();
       await saveCookies(userId, cookies);
-      logger.info('✅ Login successful, cookies saved');
-      
-      await page.screenshot({ path: `debug_2_after_login_${userId}.png` });
+      logger.info('Login successful, cookies saved');
     }
     
-    // ============ TAHAP SUBMIT INVITE LINK ============
-    logger.info('🔍 Looking for invite link input field...');
-    
-    // Tunggu sebentar agar dashboard fully loaded
+    // Cari input link invite
+    logger.info('Looking for invite link input...');
     await delay(2000);
     
-    // Cari input field untuk link invite
-    // Berdasarkan deskripsi: "Paste invite link here…"
     const linkInputSelectors = [
-      'textarea',                                           // Textarea umum
-      'input[type="text"]',                                 // Input text biasa
-      'input[placeholder*="Paste"]',                        // Placeholder "Paste..."
-      'input[placeholder*="paste"]',                        // Case insensitive
-      'input[placeholder*="invite"]',                       // Placeholder mengandung "invite"
-      'textarea[placeholder*="Paste"]',                     // Textarea dengan placeholder Paste
-      'textarea[placeholder*="invite"]',                    // Textarea dengan placeholder invite
-      '[class*="invite"] input',                            // Input di dalam class yang mengandung "invite"
-      '[class*="link"] input',                              // Input di dalam class yang mengandung "link"
-      '.invite-link-input',                                 // Class spesifik
-      '#inviteLink',                                        // ID spesifik
-      'input[name="link"]',                                 // Name attribute
-      'input[name="invite"]',                               // Name attribute
-      'textarea[name="link"]'                               // Textarea dengan name link
+      'textarea',
+      'input[type="text"]',
+      'input[placeholder*="Paste"]',
+      'textarea[placeholder*="Paste"]',
+      'input[placeholder*="invite"]',
+      '[class*="invite"] input',
+      '[class*="link"] input'
     ];
     
     let linkInput = null;
-    let usedSelector = null;
-    
     for (const selector of linkInputSelectors) {
-      try {
-        const element = await page.$(selector);
-        if (element) {
-          const isVisible = await element.isVisible().catch(() => false);
-          if (isVisible) {
-            linkInput = element;
-            usedSelector = selector;
-            logger.info(`✅ Found link input with selector: ${selector}`);
-            break;
-          }
-        }
-      } catch (e) {}
+      const element = await page.$(selector);
+      if (element && await element.isVisible().catch(() => false)) {
+        linkInput = element;
+        logger.info(`Found link input with: ${selector}`);
+        break;
+      }
     }
     
-    // Jika tidak ketemu, coba cari semua input/textarea lalu cek placeholder
     if (!linkInput) {
-      logger.info('🔍 Trying to find input by placeholder text...');
       linkInput = await page.evaluateHandle(() => {
         const inputs = document.querySelectorAll('input[type="text"], textarea');
         for (const input of inputs) {
           const placeholder = input.getAttribute('placeholder') || '';
           if (placeholder.toLowerCase().includes('paste') || 
-              placeholder.toLowerCase().includes('invite') ||
-              placeholder.toLowerCase().includes('link')) {
+              placeholder.toLowerCase().includes('invite')) {
             return input;
           }
         }
         return null;
       });
       
-      const isValid = await linkInput.asElement() !== null;
-      if (isValid) {
-        usedSelector = 'placeholder-based detection';
-        logger.info('✅ Found link input via placeholder text');
-      } else {
-        linkInput = null;
+      if (!(await linkInput.asElement())) {
+        await page.screenshot({ path: `debug_no_input_${userId}.png` });
+        throw new Error('Invite link input not found');
       }
+      logger.info('Found link input via placeholder text');
     }
     
-    if (!linkInput) {
-      await page.screenshot({ path: `debug_error_no_input_${userId}.png` });
-      throw new Error('❌ Invite link input field not found');
-    }
-    
-    // Isi link invite
+    // Isi link
     await linkInput.click({ clickCount: 3 });
     await linkInput.type(inviteLink);
-    logger.info(`📝 Filled invite link: ${inviteLink.substring(0, 60)}...`);
-    
+    logger.info(`Filled invite link`);
     await delay(1000);
     
-    // ============ TAHAP KLIK TOMBOL RUN ============
-    logger.info('🔍 Looking for RUN button...');
-    
     // Cari tombol RUN
+    logger.info('Looking for RUN button...');
+    
     const runButtonSelectors = [
-      'button:has-text("RUN")',                            // Button dengan text RUN
-      'button:has-text("Run")',                            // Button dengan text Run
-      'button[type="submit"]',                             // Submit button
-      'input[type="submit"]',                              // Submit input
-      'button',                                            // Button umum
-      '.run-button',                                       // Class run-button
-      '#runButton',                                        // ID runButton
-      'button[class*="run"]',                              // Class mengandung "run"
-      'button[class*="submit"]',                           // Class mengandung "submit"
-      'div[class*="action"] button',                       // Button dalam action div
-      '.Actions button'                                    // Button dalam Actions class
+      'button:has-text("RUN")',
+      'button:has-text("Run")',
+      'button[type="submit"]',
+      'button',
+      '.run-button',
+      '[class*="run"] button'
     ];
     
     let runButton = null;
-    let usedButtonSelector = null;
-    
     for (const selector of runButtonSelectors) {
-      try {
-        const button = await page.$(selector);
-        if (button) {
-          const isVisible = await button.isVisible().catch(() => false);
-          if (isVisible) {
-            runButton = button;
-            usedButtonSelector = selector;
-            logger.info(`✅ Found RUN button with selector: ${selector}`);
-            break;
-          }
-        }
-      } catch (e) {}
+      const button = await page.$(selector);
+      if (button && await button.isVisible().catch(() => false)) {
+        runButton = button;
+        logger.info(`Found RUN button with: ${selector}`);
+        break;
+      }
     }
     
-    // Jika tidak ketemu, coba cari button dengan text RUN
     if (!runButton) {
-      logger.info('🔍 Trying to find RUN button by text content...');
       runButton = await page.evaluateHandle(() => {
         const buttons = Array.from(document.querySelectorAll('button, input[type="submit"]'));
         const runBtn = buttons.find(btn => 
           btn.textContent?.toUpperCase() === 'RUN' ||
-          btn.textContent?.toUpperCase() === 'RUN INVITE'
+          btn.textContent?.toUpperCase().includes('RUN')
         );
         return runBtn || null;
       });
       
-      const isValid = await runButton.asElement() !== null;
-      if (isValid) {
-        usedButtonSelector = 'text-content based detection';
-        logger.info('✅ Found RUN button via text content');
-      } else {
-        runButton = null;
+      if (!(await runButton.asElement())) {
+        await page.screenshot({ path: `debug_no_button_${userId}.png` });
+        throw new Error('RUN button not found');
       }
+      logger.info('Found RUN button via text content');
     }
     
-    if (!runButton) {
-      await page.screenshot({ path: `debug_error_no_button_${userId}.png` });
-      throw new Error('❌ RUN button not found');
-    }
-    
-    // Klik tombol RUN
+    // Klik RUN
     await runButton.click();
-    logger.info('🔘 Clicked RUN button');
-    
-    // Tunggu proses invite (H87 perlu waktu)
+    logger.info('Clicked RUN button');
     await delay(5000);
     
-    // Screenshot setelah klik
-    await page.screenshot({ path: `debug_3_after_run_${userId}.png` });
-    
-    // ============ TAHAP AMBIL HASIL ============
-    logger.info('🔍 Getting result message...');
-    
-    // Cari pesan hasil (success/failed)
+    // Ambil hasil
     const resultMessage = await page.evaluate(() => {
-      const selectors = [
-        '.success',
-        '.alert-success', 
-        '.error',
-        '.alert-error',
-        '.message',
-        '.notification',
-        '[class*="success"]',
-        '[class*="error"]',
-        '[class*="alert"]',
-        '.toast',
-        '.toast-message'
-      ];
-      
+      const selectors = ['.success', '.error', '.message', '.alert-success', '.alert-error'];
       for (const sel of selectors) {
         const el = document.querySelector(sel);
         if (el && el.textContent?.trim()) {
-          const text = el.textContent.trim();
-          if (text.toLowerCase().includes('success') || 
-              text.toLowerCase().includes('berhasil') ||
-              text.toLowerCase().includes('failed') ||
-              text.toLowerCase().includes('gagal')) {
-            return text;
-          }
+          return el.textContent.trim();
         }
       }
-      
-      // Cek halaman order history
-      const orderTable = document.querySelector('table, .order-history, [class*="order"]');
-      if (orderTable && orderTable.textContent) {
-        const lastRow = orderTable.textContent.split('\n').slice(-5).join(' ');
-        if (lastRow.includes('success') || lastRow.includes('failed')) {
-          return lastRow.substring(0, 200);
-        }
-      }
-      
-      return null;
+      return 'Invite submitted, check dashboard';
     });
     
-    const finalMessage = resultMessage || 'Invite submitted, check H87 dashboard for result';
-    
-    // Update cookies
     const updatedCookies = await page.cookies();
     await saveCookies(userId, updatedCookies);
-    
     await browser.close();
-    
-    logger.info(`🎉 Process completed: ${finalMessage}`);
     
     return {
       success: true,
-      message: finalMessage,
+      message: resultMessage,
       timestamp: new Date().toISOString(),
       link: inviteLink
     };
     
   } catch (error) {
-    logger.error(`💥 Error: ${error.message}`);
-    if (browser) {
-      try {
-        await browser.close();
-      } catch (e) {}
-    }
+    logger.error(`Error: ${error.message}`);
+    if (browser) await browser.close();
     return {
       success: false,
       message: error.message,
@@ -464,9 +313,7 @@ Kirimkan link referral Midasbuy ke bot ini.
 Command:
 /stats - Lihat statistik
 /reset - Reset session
-/status - Cek status bot
-
-Proses memakan waktu 15-30 detik.`
+/status - Cek status bot`
   );
 });
 
@@ -480,11 +327,7 @@ bot.command('stats', async (ctx) => {
   }
   
   const recent = userData.processed.slice(-5).reverse();
-  let statsMsg = `Statistik Anda\n\n`;
-  statsMsg += `Total: ${userData.total}\n`;
-  statsMsg += `Berhasil: ${userData.successCount}\n`;
-  statsMsg += `Gagal: ${userData.total - userData.successCount}\n\n`;
-  statsMsg += `5 Link terakhir:\n`;
+  let statsMsg = `Statistik Anda\n\nTotal: ${userData.total}\nBerhasil: ${userData.successCount}\nGagal: ${userData.total - userData.successCount}\n\n5 Link terakhir:\n`;
   
   recent.forEach((item, i) => {
     const status = item.success ? '[OK]' : '[FAIL]';
@@ -518,7 +361,7 @@ Bot: Running`
   );
 });
 
-// Handle text messages
+// Handle pesan
 bot.on('text', async (ctx) => {
   const userId = ctx.from.id;
   const messageText = ctx.message.text;
@@ -528,24 +371,13 @@ bot.on('text', async (ctx) => {
   const urlRegex = /(https?:\/\/[^\s]+)/g;
   const urls = messageText.match(urlRegex);
   
-  if (!urls || urls.length === 0) {
-    await ctx.reply('Tidak menemukan link URL. Kirim link referral Midasbuy yang valid.');
+  if (!urls || !urls[0].includes('midasbuy.com')) {
+    await ctx.reply('Kirim link referral Midasbuy yang valid.');
     return;
   }
   
   const inviteLink = urls[0];
-  
-  if (!inviteLink.includes('midasbuy.com')) {
-    await ctx.reply('Link bukan dari Midasbuy. Pastikan link referral Midasbuy yang benar.');
-    return;
-  }
-  
-  const processingMsg = await ctx.reply(
-`Memproses link...
-
-Link: ${inviteLink.substring(0, 60)}...
-Mohon tunggu 15-30 detik.`
-  );
+  const processingMsg = await ctx.reply(`Memproses link... ${inviteLink.substring(0, 60)}...`);
   
   const result = await processInvite(userId, inviteLink);
   
@@ -561,9 +393,7 @@ Mohon tunggu 15-30 detik.`
 
 Link: ${inviteLink.substring(0, 60)}...
 Status: ${result.message}
-Waktu: ${new Date(result.timestamp).toLocaleString('id-ID')}
-
-Ketik /stats untuk lihat riwayat.`
+Waktu: ${new Date(result.timestamp).toLocaleString('id-ID')}`
     );
   } else {
     await ctx.telegram.editMessageText(ctx.chat.id, processingMsg.message_id, null,
@@ -573,7 +403,7 @@ Link: ${inviteLink.substring(0, 60)}...
 Error: ${result.message}
 Waktu: ${new Date(result.timestamp).toLocaleString('id-ID')}
 
-Saran: Coba /reset lalu kirim ulang.`
+Coba /reset lalu kirim ulang.`
     );
   }
 });
@@ -583,7 +413,6 @@ bot.catch((err, ctx) => {
   ctx.reply('Terjadi kesalahan. Coba /reset');
 });
 
-// Start bot
 bot.launch()
   .then(() => {
     logger.info('Bot started successfully!');
