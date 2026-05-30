@@ -5,7 +5,7 @@ const fs = require('fs').promises;
 const path = require('path');
 
 // ============ KONFIGURASI ============
-const BOT_TOKEN = process.env.BOT_TOKEN || '7881014057:AAHfcZNy3pKEcwsr-PLEVNkFkrz9X3ZAzXo';
+const BOT_TOKEN = process.env.BOT_TOKEN || '8844621257:AAH7cPP_YtktBQ3na7B2ZCzHrUPL5srl-DA';
 const H87_USERNAME = 'midasbot';
 const H87_PASSWORD = 'shxxop';
 const H87_URL = 'https://h87invite.shop';
